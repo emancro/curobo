@@ -2785,32 +2785,43 @@ class MotionGen(MotionGenConfig):
                 newton_iters,
                 link_poses,
             )
-            ik_result2 = self.ik_solver.solve_any(
-                solve_state.solve_type,
-                goal_pose,
-                start_state.position.view(-1, self._dof),
-                start_state.position.view(-1, 1, self._dof),
-                solve_state.num_trajopt_seeds,
-                solve_state.num_ik_seeds,
-                use_nn_seed,
-                newton_iters,
-                link_poses,
-            )
+            print(f"Seed as desired_ik: {desired_ik}")
             print(f"with seed ik_result: {ik_result}")
-            print(f"no seed ik_result: {ik_result2}")
-            
-            solutions = ik_result.js_solution.position[0]
-            desired = desired_ik.position[0]
-            distances = torch.norm(solutions - desired, dim=1)
-            for i, distance in enumerate(distances):
-                print(f"Distance for solution {i + 1}: {distance.item():.4f}")
 
-            solutions2 = ik_result2.js_solution.position[0]
-            desired = desired_ik.position[0]
-            distances2 = torch.norm(solutions2 - desired, dim=1)
-            for i, distance in enumerate(distances2):
-                print(f"Distance2 for solution {i + 1}: {distance.item():.4f}")
-            return ik_result
+
+            distances = torch.norm(ik_result.solution - desired_ik.position, dim=2)
+            closest_index = torch.argmin(distances)
+            ik_result_filtered = IKResult(
+                js_solution=JointState(
+                    position=ik_result.solution[0, closest_index].unsqueeze(0),
+                    velocity=None,
+                    acceleration=None,
+                    joint_names=ik_result.js_solution.joint_names,
+                    jerk=None,
+                    tensor_args=ik_result.js_solution.tensor_args,
+                    aux_data={}
+                ),
+                goal_pose=ik_result.goal_pose,
+                solution=ik_result.solution[0, closest_index].unsqueeze(0),
+                seed=None,
+                success=ik_result.success[0, closest_index].unsqueeze(0),
+                position_error=ik_result.position_error[0, closest_index].unsqueeze(0),
+                rotation_error=ik_result.rotation_error[0, closest_index].unsqueeze(0),
+                error=ik_result.error[0, closest_index].unsqueeze(0),
+                solve_time=ik_result.solve_time,
+                debug_info=ik_result.debug_info,
+                goalset_index=ik_result.goalset_index[0, closest_index].unsqueeze(0)
+                )
+
+            # solutions = ik_result.js_solution.position[0]
+            # desired = desired_ik.position[0]
+            # distances = torch.norm(solutions - desired, dim=1)
+
+            # for i, distance in enumerate(distances):
+            #     print(f"Distance for solution {i + 1}: {distance.item():.4f}")
+
+            print(f"Closest solution to desired ik: {ik_result_filtered}")
+            return ik_result_filtered
         else:
             ik_result = self.ik_solver.solve_any(
                 solve_state.solve_type,
