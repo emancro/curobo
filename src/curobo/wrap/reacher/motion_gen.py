@@ -1504,6 +1504,7 @@ class MotionGen(MotionGenConfig):
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
         link_poses: List[Pose] = None,
+        desired_ik: JointState = None,
     ) -> MotionGenResult:
         """Plan a single motion to reach a goal pose from a start joint state.
 
@@ -1536,6 +1537,7 @@ class MotionGen(MotionGenConfig):
             goal_pose,
             plan_config,
             link_poses=link_poses,
+            desired_ik=desired_ik,
         )
         return result
 
@@ -2751,6 +2753,7 @@ class MotionGen(MotionGenConfig):
         use_nn_seed: bool,
         partial_ik_opt: bool,
         link_poses: Optional[Dict[str, Pose]] = None,
+        desired_ik: JointState = None,
     ) -> IKResult:
         """Solve inverse kinematics from solve state, used by motion generation planning call.
 
@@ -2769,18 +2772,58 @@ class MotionGen(MotionGenConfig):
         newton_iters = None
         if partial_ik_opt:
             newton_iters = self.partial_ik_iters
-        ik_result = self.ik_solver.solve_any(
-            solve_state.solve_type,
-            goal_pose,
-            start_state.position.view(-1, self._dof),
-            start_state.position.view(-1, 1, self._dof),
-            solve_state.num_trajopt_seeds,
-            solve_state.num_ik_seeds,
-            use_nn_seed,
-            newton_iters,
-            link_poses,
-        )
-        return ik_result
+        if desired_ik is not None:
+            print(f"Using desired ik: {desired_ik}")
+            ik_result = self.ik_solver.solve_any(
+                solve_state.solve_type,
+                goal_pose,
+                desired_ik.position.view(-1, self._dof),
+                desired_ik.position.view(-1, 1, self._dof),
+                solve_state.num_trajopt_seeds,
+                solve_state.num_ik_seeds,
+                use_nn_seed,
+                newton_iters,
+                link_poses,
+            )
+            ik_result2 = self.ik_solver.solve_any(
+                solve_state.solve_type,
+                goal_pose,
+                start_state.position.view(-1, self._dof),
+                start_state.position.view(-1, 1, self._dof),
+                solve_state.num_trajopt_seeds,
+                solve_state.num_ik_seeds,
+                use_nn_seed,
+                newton_iters,
+                link_poses,
+            )
+            print(f"with seed ik_result: {ik_result}")
+            print(f"no seed ik_result: {ik_result2}")
+            
+            solutions = ik_result.js_solution.position[0]
+            desired = desired_ik.position[0]
+            distances = torch.norm(solutions - desired, dim=1)
+            for i, distance in enumerate(distances):
+                print(f"Distance for solution {i + 1}: {distance.item():.4f}")
+
+            solutions2 = ik_result2.js_solution.position[0]
+            desired = desired_ik.position[0]
+            distances2 = torch.norm(solutions2 - desired, dim=1)
+            for i, distance in enumerate(distances2):
+                print(f"Distance2 for solution {i + 1}: {distance.item():.4f}")
+            return ik_result
+        else:
+            ik_result = self.ik_solver.solve_any(
+                solve_state.solve_type,
+                goal_pose,
+                start_state.position.view(-1, self._dof),
+                start_state.position.view(-1, 1, self._dof),
+                solve_state.num_trajopt_seeds,
+                solve_state.num_ik_seeds,
+                use_nn_seed,
+                newton_iters,
+                link_poses,
+            )
+            return ik_result
 
     @profiler.record_function("motion_gen/trajopt_solve")
     def _solve_trajopt_from_solve_state(
@@ -2940,6 +2983,7 @@ class MotionGen(MotionGenConfig):
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
         link_poses: List[Pose] = None,
+        desired_ik: JointState = None,
     ):
         """Call many planning attempts for a given reacher solve state.
 
@@ -3000,6 +3044,7 @@ class MotionGen(MotionGenConfig):
                 goal_pose,
                 plan_config,
                 link_poses,
+                desired_ik,
             )
             time_dict["solve_time"] += result.solve_time
             time_dict["ik_time"] += result.ik_time
@@ -3227,6 +3272,7 @@ class MotionGen(MotionGenConfig):
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
         link_poses: Optional[Dict[str, Pose]] = None,
+        desired_ik: JointState = None,
     ) -> MotionGenResult:
         """Plan from a given reacher solve state.
 
@@ -3262,6 +3308,7 @@ class MotionGen(MotionGenConfig):
             plan_config.use_nn_ik_seed,
             plan_config.partial_ik_opt,
             link_poses,
+            desired_ik,
         )
 
         if not plan_config.enable_graph and plan_config.partial_ik_opt:
