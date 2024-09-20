@@ -433,6 +433,8 @@ namespace Curobo
       int offset_tstep               = floorf(offset_tstep_ratio * horizon); // if offset_tstep
                                                                                 // is ? horizon, not
                                                                                 // in this mode
+
+      int release_tstep = floorf(0.8 * horizon);
       float d_vec_weight[6] = { 0.0 };
       #pragma unroll 6
       for (int k = 0; k < 6; k++)
@@ -477,6 +479,12 @@ namespace Curobo
       {
         reach_offset = true;
       }
+
+      //  TODO: need to release the offset set by constraints and make the plan is partially constrained
+      // if ((horizon > 1) && (release_tstep >= 0 && (h_idx == horizon - release_tstep)))
+      // {
+      //   reach_offset = false;
+      // }
 
       float3 l_goal_position;
       float4 l_goal_quat;
