@@ -2749,89 +2749,6 @@ class MotionGen(MotionGenConfig):
             status = MotionGenStatus.INVALID_START_STATE_UNKNOWN_ISSUE
         return (valid_query, status)
 
-    # @profiler.record_function("motion_gen/ik")
-    # def _solve_ik_from_solve_state(
-    #     self,
-    #     goal_pose: Pose,
-    #     solve_state: ReacherSolveState,
-    #     start_state: JointState,
-    #     use_nn_seed: bool,
-    #     partial_ik_opt: bool,
-    #     link_poses: Optional[Dict[str, Pose]] = None,
-    #     desired_ik: JointState = None,
-    # ) -> IKResult:
-    #     """Solve inverse kinematics from solve state, used by motion generation planning call.
-
-    #     Args:
-    #         goal_pose: Goal Pose for the end-effector.
-    #         solve_state: Solve state for motion generation.
-    #         start_state: Start joint configuration of the robot.
-    #         use_nn_seed: Use seed from a neural network. Not implemented.
-    #         partial_ik_opt: Only run 50 iterations of inverse kinematics.
-    #         link_poses: Goal Poses of any other link in the robot that was specified in
-    #             :meth:`curobo.types.robot.RobotConfig.kinematics.link_names`.
-
-    #     Returns:
-    #         IKResult: Result of inverse kinematics.
-    #     """
-    #     newton_iters = None
-    #     if partial_ik_opt:
-    #         newton_iters = self.partial_ik_iters
-    #     if desired_ik is not None:
-    #         print(f"Using desired ik: {desired_ik}")
-    #         ik_result = self.ik_solver.solve_any(
-    #             solve_state.solve_type,
-    #             goal_pose,
-    #             desired_ik.position.view(-1, self._dof),
-    #             desired_ik.position.view(-1, 1, self._dof),
-    #             solve_state.num_trajopt_seeds,
-    #             solve_state.num_ik_seeds,
-    #             use_nn_seed,
-    #             newton_iters,
-    #             link_poses,
-    #         )
-    #         print(f"Seed as desired_ik: {desired_ik}")
-    #         print(f"with seed ik_result: {ik_result}")
-
-    #         distances = torch.norm(ik_result.solution - desired_ik.position, dim=2)
-    #         closest_index = torch.argmin(distances)
-    #         ik_result_filtered = IKResult(
-    #             js_solution=JointState(
-    #                 position=ik_result.solution[0, closest_index].unsqueeze(0),
-    #                 velocity=None,
-    #                 acceleration=None,
-    #                 joint_names=ik_result.js_solution.joint_names,
-    #                 jerk=None,
-    #                 tensor_args=ik_result.js_solution.tensor_args,
-    #                 aux_data={}
-    #             ),
-    #             goal_pose=ik_result.goal_pose,
-    #             solution=ik_result.solution[0, closest_index].unsqueeze(0),
-    #             seed=None,
-    #             success=ik_result.success[0, closest_index].unsqueeze(0),
-    #             position_error=ik_result.position_error[0, closest_index].unsqueeze(0),
-    #             rotation_error=ik_result.rotation_error[0, closest_index].unsqueeze(0),
-    #             error=ik_result.error[0, closest_index].unsqueeze(0),
-    #             solve_time=ik_result.solve_time,
-    #             debug_info=ik_result.debug_info,
-    #             goalset_index=ik_result.goalset_index[0, closest_index].unsqueeze(0)
-    #             )
-
-    #         print(f"Closest solution to desired ik: {ik_result_filtered}")
-    #         return ik_result_filtered
-    #     else:
-    #         ik_result = self.ik_solver.solve_any(
-    #             solve_state.solve_type,
-    #             goal_pose,
-    #             start_state.position.view(-1, self._dof),
-    #             start_state.position.view(-1, 1, self._dof),
-    #             solve_state.num_trajopt_seeds,
-    #             solve_state.num_ik_seeds,
-    #             use_nn_seed,
-    #             newton_iters,
-    #             link_poses,
-    #         )
-    #         return ik_result
 
     @profiler.record_function("motion_gen/ik")
     def _solve_ik_from_solve_state(
@@ -2875,8 +2792,8 @@ class MotionGen(MotionGenConfig):
                 newton_iters,
                 link_poses,
             )
-            print(f"Seed as desired_ik: {desired_ik}")
-            print(f"with seed ik_result: {ik_result}")
+            # print(f"Seed as desired_ik: {desired_ik}")
+            # print(f"with seed ik_result: {ik_result}")
 
             distances = torch.norm(ik_result.solution - desired_ik.position,
                                    dim=2)
@@ -2888,9 +2805,9 @@ class MotionGen(MotionGenConfig):
                     f"Found IK solution within distance threshold: {min_distance}"
                 )
             else:
-                print(
-                    f"Did not find IK solution within distance threshold: {min_distance}"
-                )
+                # print(
+                #     f"Did not find IK solution within distance threshold: {min_distance}"
+                # )
                 return None
 
             ik_result_filtered = IKResult(
@@ -2924,7 +2841,7 @@ class MotionGen(MotionGenConfig):
                     0, closest_index].unsqueeze(0).repeat(
                         ik_result.goalset_index.shape[1]))
 
-            print(f"Closest solution to desired ik: {ik_result_filtered}")
+            # print(f"Closest solution to desired ik: {ik_result_filtered}")
             return ik_result_filtered
         else:
             ik_result = self.ik_solver.solve_any(
