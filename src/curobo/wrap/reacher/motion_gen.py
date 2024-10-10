@@ -2874,15 +2874,15 @@ class MotionGen(MotionGenConfig):
                     newton_iters,
                     link_poses,
                 )
-                print(f"Attempt {attempt + 1}: Seed as desired_ik: {desired_ik}")
-                print(f"with seed ik_result: {ik_result}")
+                # print(f"Attempt {attempt + 1}: Seed as desired_ik: {desired_ik}")
+                # print(f"with seed ik_result: {ik_result}")
 
                 distances = torch.norm(ik_result.solution - desired_ik.position, dim=2)
                 closest_index = torch.argmin(distances)
                 min_distance = distances[0, closest_index]
 
                 if min_distance <= distance_threshold:
-                    print(f"Found IK solution within distance threshold: {min_distance}")
+                    # print(f"Found IK solution within distance threshold: {min_distance}")
                     break
 
                 if attempt == max_attempts - 1:
@@ -2910,7 +2910,7 @@ class MotionGen(MotionGenConfig):
                 goalset_index=ik_result.goalset_index[0, closest_index].unsqueeze(0)
             )
 
-            print(f"Closest solution to desired ik: {ik_result_filtered}")
+            # print(f"Closest solution to desired ik: {ik_result_filtered}")
             return ik_result_filtered
         else:
             ik_result = self.ik_solver.solve_any(
