@@ -2749,7 +2749,6 @@ class MotionGen(MotionGenConfig):
             status = MotionGenStatus.INVALID_START_STATE_UNKNOWN_ISSUE
         return (valid_query, status)
 
-
     @profiler.record_function("motion_gen/ik")
     def _solve_ik_from_solve_state(
         self,
@@ -2805,10 +2804,11 @@ class MotionGen(MotionGenConfig):
                     f"Found IK solution within distance threshold: {min_distance}"
                 )
             else:
-                # print(
-                #     f"Did not find IK solution within distance threshold: {min_distance}"
-                # )
-                return None
+                print(
+                    f"Did not find IK solution within distance threshold: {min_distance}"
+                )
+                ik_result.success[:] = False
+                return ik_result
 
             ik_result_filtered = IKResult(
                 js_solution=JointState(
