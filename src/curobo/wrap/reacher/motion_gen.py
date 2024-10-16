@@ -2779,7 +2779,7 @@ class MotionGen(MotionGenConfig):
             newton_iters = self.partial_ik_iters
 
         if desired_ik is not None:
-            distance_threshold = 1.0
+            distance_threshold = 1.5
             ik_result = self.ik_solver.solve_any(
                 solve_state.solve_type,
                 goal_pose,
@@ -2791,8 +2791,6 @@ class MotionGen(MotionGenConfig):
                 newton_iters,
                 link_poses,
             )
-            # print(f"Seed as desired_ik: {desired_ik}")
-            # print(f"with seed ik_result: {ik_result}")
 
             distances = torch.norm(ik_result.solution - desired_ik.position,
                                    dim=2)
@@ -2800,11 +2798,13 @@ class MotionGen(MotionGenConfig):
             min_distance = distances[0, closest_index]
 
             if min_distance <= distance_threshold:
-                print(
+                log_warn(
                     f"Found IK solution within distance threshold: {min_distance}"
                 )
             else:
-                print(
+                log_warn(f"Seed as desired_ik: {desired_ik}")
+                log_warn(f"with seed ik_result: {ik_result}")
+                log_warn(
                     f"Did not find IK solution within distance threshold: {min_distance}"
                 )
                 ik_result.success[:] = False
@@ -2841,7 +2841,7 @@ class MotionGen(MotionGenConfig):
                     0, closest_index].unsqueeze(0).repeat(
                         ik_result.goalset_index.shape[1]))
 
-            # print(f"Closest solution to desired ik: {ik_result_filtered}")
+            # log_warn(f"Closest solution to desired ik: {ik_result_filtered}")
             return ik_result_filtered
         else:
             ik_result = self.ik_solver.solve_any(
