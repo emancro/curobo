@@ -2779,7 +2779,7 @@ class MotionGen(MotionGenConfig):
             newton_iters = self.partial_ik_iters
 
         if desired_ik is not None:
-            distance_threshold = 1.5
+            distance_threshold = 1500
             ik_result = self.ik_solver.solve_any(
                 solve_state.solve_type,
                 goal_pose,
