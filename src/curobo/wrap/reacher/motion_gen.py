@@ -2779,7 +2779,7 @@ class MotionGen(MotionGenConfig):
             newton_iters = self.partial_ik_iters
 
         if desired_ik is not None:
-            distance_threshold = 1500
+            distance_threshold = 2.0
             ik_result = self.ik_solver.solve_any(
                 solve_state.solve_type,
                 goal_pose,
@@ -2791,6 +2791,8 @@ class MotionGen(MotionGenConfig):
                 newton_iters,
                 link_poses,
             )
+
+            log_warn(f'Pure ik result: {ik_result}')
 
             distances = torch.norm(ik_result.solution - desired_ik.position,
                                    dim=2)
@@ -2841,7 +2843,7 @@ class MotionGen(MotionGenConfig):
                     0, closest_index].unsqueeze(0).repeat(
                         ik_result.goalset_index.shape[1]))
 
-            # log_warn(f"Closest solution to desired ik: {ik_result_filtered}")
+            log_warn(f"Closest solution to desired ik: {ik_result_filtered}")
             return ik_result_filtered
         else:
             ik_result = self.ik_solver.solve_any(
