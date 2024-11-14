@@ -2778,86 +2778,94 @@ class MotionGen(MotionGenConfig):
         if partial_ik_opt:
             newton_iters = self.partial_ik_iters
 
-        if desired_ik is not None:
-            distance_threshold = 2.0
-            ik_result = self.ik_solver.solve_any(
-                solve_state.solve_type,
-                goal_pose,
-                desired_ik.position.view(-1, self._dof),
-                desired_ik.position.view(-1, 1, self._dof),
-                solve_state.num_trajopt_seeds,
-                solve_state.num_ik_seeds,
-                use_nn_seed,
-                newton_iters,
-                link_poses,
-            )
+        distance_threshold = 2.0
+        ik_results = []
+        distances = []
 
-            log_warn(f'Pure ik result: {ik_result}')
-
-            distances = torch.norm(ik_result.solution - desired_ik.position,
-                                   dim=2)
-            closest_index = torch.argmin(distances)
-            min_distance = distances[0, closest_index]
-
-            if min_distance <= distance_threshold:
-                log_warn(
-                    f"Found IK solution within distance threshold: {min_distance}"
-                )
+        for _ in range(10):
+            if desired_ik is not None:
+                seed_position = desired_ik.position.view(-1, self._dof)
+                seed_view = desired_ik.position.view(-1, 1, self._dof)
             else:
-                log_warn(f"Seed as desired_ik: {desired_ik}")
-                log_warn(f"with seed ik_result: {ik_result}")
-                log_warn(
-                    f"Did not find IK solution within distance threshold: {min_distance}"
-                )
-                ik_result.success[:] = False
-                return ik_result
+                seed_position = start_state.position.view(-1, self._dof)
+                seed_view = start_state.position.view(-1, 1, self._dof)
 
-            ik_result_filtered = IKResult(
-                js_solution=JointState(
-                    position=ik_result.solution[0, closest_index].unsqueeze(
-                        0).repeat(ik_result.solution.shape[1], 1),
-                    velocity=None,
-                    acceleration=None,
-                    joint_names=ik_result.js_solution.joint_names,
-                    jerk=None,
-                    tensor_args=ik_result.js_solution.tensor_args,
-                    aux_data={}),
-                goal_pose=ik_result.goal_pose,
-                solution=ik_result.solution[0,
-                                            closest_index].unsqueeze(0).repeat(
-                                                ik_result.solution.shape[1], 1),
-                seed=None,
-                success=ik_result.success[0, closest_index].unsqueeze(0).repeat(
-                    ik_result.success.shape[1]),
-                position_error=ik_result.position_error[
-                    0, closest_index].unsqueeze(0).repeat(
-                        ik_result.position_error.shape[1]),
-                rotation_error=ik_result.rotation_error[
-                    0, closest_index].unsqueeze(0).repeat(
-                        ik_result.rotation_error.shape[1]),
-                error=ik_result.error[0, closest_index].unsqueeze(0).repeat(
-                    ik_result.error.shape[1]),
-                solve_time=ik_result.solve_time,
-                debug_info=ik_result.debug_info,
-                goalset_index=ik_result.goalset_index[
-                    0, closest_index].unsqueeze(0).repeat(
-                        ik_result.goalset_index.shape[1]))
-
-            log_warn(f"Closest solution to desired ik: {ik_result_filtered}")
-            return ik_result_filtered
-        else:
             ik_result = self.ik_solver.solve_any(
                 solve_state.solve_type,
                 goal_pose,
-                start_state.position.view(-1, self._dof),
-                start_state.position.view(-1, 1, self._dof),
+                seed_position,
+                seed_view,
                 solve_state.num_trajopt_seeds,
                 solve_state.num_ik_seeds,
                 use_nn_seed,
                 newton_iters,
                 link_poses,
             )
-            return ik_result
+
+            # Calculate distance to desired IK or start state
+            if desired_ik is not None:
+                distance = torch.norm(ik_result.solution - desired_ik.position,
+                                      dim=2)
+            else:
+                distance = torch.norm(ik_result.solution - start_state.position,
+                                      dim=2)
+
+            distances.append(distance)
+            ik_results.append(ik_result)
+
+        # Find the IK result with the minimal distance
+        all_distances = torch.stack(
+            distances, dim=0)  # Shape: [10, batch_size, num_solutions]
+        min_distances, min_indices = torch.min(all_distances,
+                                               dim=2)  # Shape: [10, batch_size]
+        overall_min_distance, best_result_index = torch.min(
+            min_distances, dim=0)  # Shape: [batch_size]
+        best_ik_result = ik_results[best_result_index.item()]
+        closest_index = min_indices[best_result_index][0].item()
+
+        if desired_ik is not None and overall_min_distance.item(
+        ) > distance_threshold:
+            log_warn(
+                f"Did not find IK solution within distance threshold: {overall_min_distance.item()}"
+            )
+            best_ik_result.success[:] = False
+            return best_ik_result
+
+        # Prepare the filtered IKResult
+        ik_result_filtered = IKResult(
+            js_solution=JointState(
+                position=best_ik_result.solution[0, closest_index].unsqueeze(
+                    0).repeat(best_ik_result.solution.shape[1], 1),
+                velocity=None,
+                acceleration=None,
+                joint_names=best_ik_result.js_solution.joint_names,
+                jerk=None,
+                tensor_args=best_ik_result.js_solution.tensor_args,
+                aux_data={},
+            ),
+            goal_pose=best_ik_result.goal_pose,
+            solution=best_ik_result.solution[0, closest_index].unsqueeze(
+                0).repeat(best_ik_result.solution.shape[1], 1),
+            seed=None,
+            success=best_ik_result.success[0,
+                                           closest_index].unsqueeze(0).repeat(
+                                               best_ik_result.success.shape[1]),
+            position_error=best_ik_result.position_error[
+                0, closest_index].unsqueeze(0).repeat(
+                    best_ik_result.position_error.shape[1]),
+            rotation_error=best_ik_result.rotation_error[
+                0, closest_index].unsqueeze(0).repeat(
+                    best_ik_result.rotation_error.shape[1]),
+            error=best_ik_result.error[0, closest_index].unsqueeze(0).repeat(
+                best_ik_result.error.shape[1]),
+            solve_time=best_ik_result.solve_time,
+            debug_info=best_ik_result.debug_info,
+            goalset_index=best_ik_result.goalset_index[
+                0, closest_index].unsqueeze(0).repeat(
+                    best_ik_result.goalset_index.shape[1]),
+        )
+
+        return ik_result_filtered
 
     @profiler.record_function("motion_gen/trajopt_solve")
     def _solve_trajopt_from_solve_state(
