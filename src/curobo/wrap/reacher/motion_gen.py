@@ -1512,7 +1512,7 @@ class MotionGen(MotionGenConfig):
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
         link_poses: List[Pose] = None,
-        desired_ik: JointState = None,
+        desired_ik_list: List[JointState] = None,
     ) -> MotionGenResult:
         """Plan a single motion to reach a goal pose from a start joint state.
 
@@ -1535,6 +1535,7 @@ class MotionGen(MotionGenConfig):
                 attribute to see if the query was successful.
         """
         log_info("Planning for Single Goal: " + str(goal_pose.batch))
+
         solve_state = self._get_solve_state(ReacherSolveType.SINGLE,
                                             plan_config, goal_pose, start_state)
 
@@ -1544,7 +1545,7 @@ class MotionGen(MotionGenConfig):
             goal_pose,
             plan_config,
             link_poses=link_poses,
-            desired_ik=desired_ik,
+            desired_ik_list=desired_ik_list,
         )
         return result
 
@@ -2758,7 +2759,8 @@ class MotionGen(MotionGenConfig):
         use_nn_seed: bool,
         partial_ik_opt: bool,
         link_poses: Optional[Dict[str, Pose]] = None,
-        desired_ik: JointState = None,
+        desired_ik_list: List[JointState] = None,
+        num_ik_cal_times: int = 10,
     ) -> IKResult:
         """Solve inverse kinematics from solve state, used by motion generation planning call.
 
@@ -2782,36 +2784,31 @@ class MotionGen(MotionGenConfig):
         ik_results = []
         distances = []
 
-        for _ in range(10):
-            if desired_ik is not None:
+        if desired_ik_list is None or len(desired_ik_list) == 0:
+            desired_ik_list = [start_state]
+
+        for desired_ik in desired_ik_list:
+            log_warn(f'MotionGen IK based on {desired_ik.position}')
+            for _ in range(num_ik_cal_times):
                 seed_position = desired_ik.position.view(-1, self._dof)
                 seed_view = desired_ik.position.view(-1, 1, self._dof)
-            else:
-                seed_position = start_state.position.view(-1, self._dof)
-                seed_view = start_state.position.view(-1, 1, self._dof)
 
-            ik_result = self.ik_solver.solve_any(
-                solve_state.solve_type,
-                goal_pose,
-                seed_position,
-                seed_view,
-                solve_state.num_trajopt_seeds,
-                solve_state.num_ik_seeds,
-                use_nn_seed,
-                newton_iters,
-                link_poses,
-            )
-
-            # Calculate distance to desired IK or start state
-            if desired_ik is not None:
+                ik_result = self.ik_solver.solve_any(
+                    solve_state.solve_type,
+                    goal_pose,
+                    seed_position,
+                    seed_view,
+                    solve_state.num_trajopt_seeds,
+                    solve_state.num_ik_seeds,
+                    use_nn_seed,
+                    newton_iters,
+                    link_poses,
+                )
+                # Calculate distance to desired IK or start state
                 distance = torch.norm(ik_result.solution - desired_ik.position,
                                       dim=2)
-            else:
-                distance = torch.norm(ik_result.solution - start_state.position,
-                                      dim=2)
-
-            distances.append(distance)
-            ik_results.append(ik_result)
+                distances.append(distance)
+                ik_results.append(ik_result)
 
         # Find the IK result with the minimal distance
         all_distances = torch.stack(
@@ -2823,13 +2820,18 @@ class MotionGen(MotionGenConfig):
         best_ik_result = ik_results[best_result_index.item()]
         closest_index = min_indices[best_result_index][0].item()
 
-        if desired_ik is not None and overall_min_distance.item(
-        ) > distance_threshold:
+        if overall_min_distance.item() > distance_threshold:
             log_warn(
-                f"Did not find IK solution within distance threshold: {overall_min_distance.item()}"
+                f"MotionGen Did not find IK solution within distance threshold: {overall_min_distance.item()}"
             )
             best_ik_result.success[:] = False
             return best_ik_result
+
+        log_warn(
+            f'MotionGen Distance to desired IK: {overall_min_distance.item()}')
+        log_warn(
+            f'MotionGen IK result: {best_ik_result.solution[0, closest_index]}')
+        log_warn(f'MotionGen IK goal pose: {best_ik_result.goal_pose}')
 
         # Prepare the filtered IKResult
         ik_result_filtered = IKResult(
@@ -3020,7 +3022,7 @@ class MotionGen(MotionGenConfig):
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
         link_poses: List[Pose] = None,
-        desired_ik: JointState = None,
+        desired_ik_list: List[JointState] = None,
     ):
         """Call many planning attempts for a given reacher solve state.
 
@@ -3083,7 +3085,7 @@ class MotionGen(MotionGenConfig):
                 goal_pose,
                 plan_config,
                 link_poses,
-                desired_ik,
+                desired_ik_list,
             )
             time_dict["solve_time"] += result.solve_time
             time_dict["ik_time"] += result.ik_time
@@ -3317,7 +3319,7 @@ class MotionGen(MotionGenConfig):
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
         link_poses: Optional[Dict[str, Pose]] = None,
-        desired_ik: JointState = None,
+        desired_ik_list: List[JointState] = None,
     ) -> MotionGenResult:
         """Plan from a given reacher solve state.
 
@@ -3353,7 +3355,7 @@ class MotionGen(MotionGenConfig):
             plan_config.use_nn_ik_seed,
             plan_config.partial_ik_opt,
             link_poses,
-            desired_ik,
+            desired_ik_list,
         )
 
         if not plan_config.enable_graph and plan_config.partial_ik_opt:
