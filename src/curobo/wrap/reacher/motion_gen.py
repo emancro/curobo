@@ -2419,41 +2419,60 @@ class MotionGen(MotionGenConfig):
         kin_state = self.compute_kinematics(joint_state)
         ee_pose = kin_state.ee_pose  # w_T_ee
         if world_objects_pose_offset is not None:
-            # add offset from ee:
             ee_pose = world_objects_pose_offset.inverse().multiply(ee_pose)
-            # new ee_pose:
-            # w_T_ee = offset_T_w * w_T_ee
-            # ee_T_w
         ee_pose = ee_pose.inverse()  # ee_T_w to multiply all objects later
+
         max_spheres = self.robot_cfg.kinematics.kinematics_config.get_number_of_spheres(
             link_name)
-        object_names = [x.name for x in external_objects]
-        n_spheres = int(max_spheres / len(object_names))
         sphere_tensor = torch.zeros((max_spheres, 4))
         sphere_tensor[:, 3] = -10.0
         sph_list = []
-        if n_spheres == 0:
-            log_warn("MG: No spheres found, max_spheres: " + str(max_spheres) +
-                     " n_objects: " + str(len(object_names)))
-            return False
-        for i, x in enumerate(object_names):
-            obs = external_objects[i]
-            sph = obs.get_bounding_spheres(
-                n_spheres,
-                surface_sphere_radius,
-                pre_transform_pose=ee_pose,
-                tensor_args=self.tensor_args,
-                fit_type=sphere_fit_type,
-                voxelize_method=voxelize_method,
-            )
-            sph_list += [s.position + [s.radius] for s in sph]
+
+        for obs in external_objects:
+            if isinstance(obs, Cuboid):
+                # Create 8 corner spheres for cuboid
+                dims = obs.dims
+                half_dims = [d / 2.0 for d in dims]
+                corners = [[half_dims[0], half_dims[1], half_dims[2]],
+                           [half_dims[0], half_dims[1], -half_dims[2]],
+                           [half_dims[0], -half_dims[1], half_dims[2]],
+                           [half_dims[0], -half_dims[1], -half_dims[2]],
+                           [-half_dims[0], half_dims[1], half_dims[2]],
+                           [-half_dims[0], half_dims[1], -half_dims[2]],
+                           [-half_dims[0], -half_dims[1], half_dims[2]],
+                           [-half_dims[0], -half_dims[1], -half_dims[2]]]
+                # Transform corners by cuboid pose
+                obs_pose = Pose.from_list(obs.pose,
+                                          tensor_args=self.tensor_args)
+                obs_pose = ee_pose.multiply(obs_pose)
+                corners_tensor = self.tensor_args.to_device(
+                    torch.tensor(corners))
+                transformed_corners = obs_pose.transform_points(corners_tensor)
+                # Add radius as surface_sphere_radius
+                corner_spheres = torch.cat([
+                    transformed_corners,
+                    torch.ones(8, 1, device=transformed_corners.device) *
+                    surface_sphere_radius
+                ],
+                                           dim=1)
+                sph_list.extend(corner_spheres.tolist())
+            else:
+                # Original sphere sampling for other obstacle types
+                sph = obs.get_bounding_spheres(
+                    int(max_spheres / len(external_objects)),
+                    surface_sphere_radius,
+                    pre_transform_pose=ee_pose,
+                    tensor_args=self.tensor_args,
+                    fit_type=sphere_fit_type,
+                    voxelize_method=voxelize_method,
+                )
+                sph_list += [s.position + [s.radius] for s in sph]
 
         log_info("MG: Computed spheres for attach objects to robot")
 
         spheres = self.tensor_args.to_device(torch.as_tensor(sph_list))
-
         if spheres.shape[0] > max_spheres:
-            spheres = spheres[:spheres.shape[0]]
+            spheres = spheres[:max_spheres]
         sphere_tensor[:spheres.shape[0], :] = spheres.contiguous()
 
         self.attach_spheres_to_robot(sphere_tensor=sphere_tensor,
