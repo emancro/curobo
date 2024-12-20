@@ -1936,7 +1936,7 @@ class MotionGen(MotionGenConfig):
                                     quaternion=state.ee_quat_seq)
                 start_state.position[...,
                                      warmup_joint_index] += warmup_joint_delta
-                for _ in range(3):
+                for _ in range(1):
                     self.plan_single(
                         start_state,
                         retract_pose,
@@ -2467,41 +2467,60 @@ class MotionGen(MotionGenConfig):
         kin_state = self.compute_kinematics(joint_state)
         ee_pose = kin_state.ee_pose  # w_T_ee
         if world_objects_pose_offset is not None:
-            # add offset from ee:
             ee_pose = world_objects_pose_offset.inverse().multiply(ee_pose)
-            # new ee_pose:
-            # w_T_ee = offset_T_w * w_T_ee
-            # ee_T_w
         ee_pose = ee_pose.inverse()  # ee_T_w to multiply all objects later
+
         max_spheres = self.robot_cfg.kinematics.kinematics_config.get_number_of_spheres(
             link_name)
-        object_names = [x.name for x in external_objects]
-        n_spheres = int(max_spheres / len(object_names))
         sphere_tensor = torch.zeros((max_spheres, 4))
         sphere_tensor[:, 3] = -10.0
         sph_list = []
-        if n_spheres == 0:
-            log_warn("MG: No spheres found, max_spheres: " + str(max_spheres) +
-                     " n_objects: " + str(len(object_names)))
-            return False
-        for i, x in enumerate(object_names):
-            obs = external_objects[i]
-            sph = obs.get_bounding_spheres(
-                n_spheres,
-                surface_sphere_radius,
-                pre_transform_pose=ee_pose,
-                tensor_args=self.tensor_args,
-                fit_type=sphere_fit_type,
-                voxelize_method=voxelize_method,
-            )
-            sph_list += [s.position + [s.radius] for s in sph]
+
+        for obs in external_objects:
+            if isinstance(obs, Cuboid):
+                # Create 8 corner spheres for cuboid
+                dims = obs.dims
+                half_dims = [d / 2.0 for d in dims]
+                corners = [[half_dims[0], half_dims[1], half_dims[2]],
+                           [half_dims[0], half_dims[1], -half_dims[2]],
+                           [half_dims[0], -half_dims[1], half_dims[2]],
+                           [half_dims[0], -half_dims[1], -half_dims[2]],
+                           [-half_dims[0], half_dims[1], half_dims[2]],
+                           [-half_dims[0], half_dims[1], -half_dims[2]],
+                           [-half_dims[0], -half_dims[1], half_dims[2]],
+                           [-half_dims[0], -half_dims[1], -half_dims[2]]]
+                # Transform corners by cuboid pose
+                obs_pose = Pose.from_list(obs.pose,
+                                          tensor_args=self.tensor_args)
+                obs_pose = ee_pose.multiply(obs_pose)
+                corners_tensor = self.tensor_args.to_device(
+                    torch.tensor(corners))
+                transformed_corners = obs_pose.transform_points(corners_tensor)
+                # Add radius as surface_sphere_radius
+                corner_spheres = torch.cat([
+                    transformed_corners,
+                    torch.ones(8, 1, device=transformed_corners.device) *
+                    surface_sphere_radius
+                ],
+                                           dim=1)
+                sph_list.extend(corner_spheres.tolist())
+            else:
+                # Original sphere sampling for other obstacle types
+                sph = obs.get_bounding_spheres(
+                    int(max_spheres / len(external_objects)),
+                    surface_sphere_radius,
+                    pre_transform_pose=ee_pose,
+                    tensor_args=self.tensor_args,
+                    fit_type=sphere_fit_type,
+                    voxelize_method=voxelize_method,
+                )
+                sph_list += [s.position + [s.radius] for s in sph]
 
         log_info("MG: Computed spheres for attach objects to robot")
 
         spheres = self.tensor_args.to_device(torch.as_tensor(sph_list))
-
         if spheres.shape[0] > max_spheres:
-            spheres = spheres[:spheres.shape[0]]
+            spheres = spheres[:max_spheres]
         sphere_tensor[:spheres.shape[0], :] = spheres.contiguous()
 
         self.attach_spheres_to_robot(sphere_tensor=sphere_tensor,
@@ -2832,8 +2851,10 @@ class MotionGen(MotionGenConfig):
         ik_results = []
         distances = []
 
+        use_distance_threshold = True
         if desired_ik_list is None or len(desired_ik_list) == 0:
             desired_ik_list = [start_state]
+            use_distance_threshold = False
 
         for desired_ik in desired_ik_list:
             log_warn(f'MotionGen IK based on {desired_ik.position}')
@@ -2868,7 +2889,8 @@ class MotionGen(MotionGenConfig):
         best_ik_result = ik_results[best_result_index.item()]
         closest_index = min_indices[best_result_index][0].item()
 
-        if overall_min_distance.item() > distance_threshold:
+        if use_distance_threshold and overall_min_distance.item(
+        ) > distance_threshold:
             log_warn(
                 f"MotionGen Did not find IK solution within distance threshold: {overall_min_distance.item()}"
             )
@@ -4312,7 +4334,8 @@ class MotionGen(MotionGenConfig):
         result = self.plan_batch(start_state, goal_pose, plan_config)
         return result
 
-    def toggle_link_collision(self, collision_link_names: List[str], enable_flag: bool):
+    def toggle_link_collision(self, collision_link_names: List[str],
+                              enable_flag: bool):
         if len(collision_link_names) > 0:
             if enable_flag:
                 for k in collision_link_names:
@@ -4327,9 +4350,13 @@ class MotionGen(MotionGenConfig):
         grasp_poses: Pose,
         plan_config: MotionGenPlanConfig,
         grasp_approach_offset: Pose = Pose.from_list([0, 0, -0.15, 1, 0, 0, 0]),
-        grasp_approach_path_constraint: Union[None, List[float]] = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0],
+        grasp_approach_path_constraint: Union[None, List[float]] = [
+            0.1, 0.1, 0.1, 0.1, 0.1, 0.0
+        ],
         retract_offset: Pose = Pose.from_list([0, 0, -0.15, 1, 0, 0, 0]),
-        retract_path_constraint: Union[None, List[float]] = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0],
+        retract_path_constraint: Union[None, List[float]] = [
+            0.1, 0.1, 0.1, 0.1, 0.1, 0.0
+        ],
         disable_collision_links: List[str] = [],
         plan_approach_to_grasp: bool = True,
         plan_grasp_to_retract: bool = True,
@@ -4412,7 +4439,8 @@ class MotionGen(MotionGenConfig):
         if grasp_approach_constraint_in_goal_frame:
             offset_goal_pose = goal_pose.clone().multiply(grasp_approach_offset)
         else:
-            offset_goal_pose = grasp_approach_offset.clone().multiply(goal_pose.clone())
+            offset_goal_pose = grasp_approach_offset.clone().multiply(
+                goal_pose.clone())
 
         reach_offset_mg_result = self.plan_single(
             start_state,
@@ -4427,19 +4455,22 @@ class MotionGen(MotionGenConfig):
         if not plan_approach_to_grasp:
             result.grasp_trajectory = reach_offset_mg_result.optimized_plan
             result.grasp_trajectory_dt = reach_offset_mg_result.optimized_dt
-            result.grasp_interpolated_trajectory = reach_offset_mg_result.get_interpolated_plan()
+            result.grasp_interpolated_trajectory = reach_offset_mg_result.get_interpolated_plan(
+            )
             result.grasp_interpolation_dt = reach_offset_mg_result.interpolation_dt
             return result
         # plan to final grasp
         if grasp_approach_path_constraint is not None:
             hold_pose_cost_metric = PoseCostMetric(
                 hold_partial_pose=True,
-                hold_vec_weight=self.tensor_args.to_device(grasp_approach_path_constraint),
+                hold_vec_weight=self.tensor_args.to_device(
+                    grasp_approach_path_constraint),
                 project_to_goal_frame=grasp_approach_constraint_in_goal_frame,
             )
             plan_config.pose_cost_metric = hold_pose_cost_metric
 
-        offset_start_state = reach_offset_mg_result.optimized_plan[-1].unsqueeze(0)
+        offset_start_state = reach_offset_mg_result.optimized_plan[
+            -1].unsqueeze(0)
 
         self.toggle_link_collision(disable_collision_links, False)
 
@@ -4476,34 +4507,29 @@ class MotionGen(MotionGenConfig):
                 interpolate_trajectory=True,
             )
 
-        if (reach_offset_mg_result.optimized_dt - reach_grasp_mg_result.optimized_dt).abs() > 0.01:
+        if (reach_offset_mg_result.optimized_dt -
+                reach_grasp_mg_result.optimized_dt).abs() > 0.01:
             reach_offset_mg_result.success[:] = False
             if reach_offset_mg_result.debug_info is None:
                 reach_offset_mg_result.debug_info = {}
             reach_offset_mg_result.debug_info["plan_single_grasp_status"] = (
-                "Stitching Trajectories Failed"
-            )
+                "Stitching Trajectories Failed")
             return reach_offset_mg_result, None
 
         result.grasp_trajectory = reach_offset_mg_result.optimized_plan.stack(
-            reach_grasp_mg_result.optimized_plan
-        ).clone()
+            reach_grasp_mg_result.optimized_plan).clone()
 
         result.grasp_trajectory_dt = reach_offset_mg_result.optimized_dt
 
         result.grasp_interpolated_trajectory = (
-            reach_offset_mg_result.get_interpolated_plan()
-            .stack(reach_grasp_mg_result.get_interpolated_plan())
-            .clone()
-        )
+            reach_offset_mg_result.get_interpolated_plan().stack(
+                reach_grasp_mg_result.get_interpolated_plan()).clone())
         result.grasp_interpolation_dt = reach_offset_mg_result.interpolation_dt
 
         # update trajectories in results:
-        result.planning_time = (
-            reach_offset_mg_result.total_time
-            + reach_grasp_mg_result.total_time
-            + goalset_motion_gen_result.total_time
-        )
+        result.planning_time = (reach_offset_mg_result.total_time +
+                                reach_grasp_mg_result.total_time +
+                                goalset_motion_gen_result.total_time)
 
         # check if retract path is required:
         result.success[:] = True
@@ -4518,7 +4544,8 @@ class MotionGen(MotionGenConfig):
         if retract_constraint_in_goal_frame:
             retract_goal_pose = goal_pose.clone().multiply(retract_offset)
         else:
-            retract_goal_pose = retract_offset.clone().multiply(goal_pose.clone())
+            retract_goal_pose = retract_offset.clone().multiply(
+                goal_pose.clone())
 
         # add path constraint for retract:
         plan_config.pose_cost_metric = None
@@ -4526,7 +4553,8 @@ class MotionGen(MotionGenConfig):
         if retract_path_constraint is not None:
             hold_pose_cost_metric = PoseCostMetric(
                 hold_partial_pose=True,
-                hold_vec_weight=self.tensor_args.to_device(retract_path_constraint),
+                hold_vec_weight=self.tensor_args.to_device(
+                    retract_path_constraint),
                 project_to_goal_frame=retract_constraint_in_goal_frame,
             )
             plan_config.pose_cost_metric = hold_pose_cost_metric
@@ -4547,7 +4575,8 @@ class MotionGen(MotionGenConfig):
 
         result.retract_trajectory = retract_grasp_mg_result.optimized_plan
         result.retract_trajectory_dt = retract_grasp_mg_result.optimized_dt
-        result.retract_interpolated_trajectory = retract_grasp_mg_result.get_interpolated_plan()
+        result.retract_interpolated_trajectory = retract_grasp_mg_result.get_interpolated_plan(
+        )
         result.retract_interpolation_dt = retract_grasp_mg_result.interpolation_dt
 
         return result
