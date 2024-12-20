@@ -1936,7 +1936,7 @@ class MotionGen(MotionGenConfig):
                                     quaternion=state.ee_quat_seq)
                 start_state.position[...,
                                      warmup_joint_index] += warmup_joint_delta
-                for _ in range(3):
+                for _ in range(1):
                     self.plan_single(
                         start_state,
                         retract_pose,
@@ -4331,7 +4331,8 @@ class MotionGen(MotionGenConfig):
         result = self.plan_batch(start_state, goal_pose, plan_config)
         return result
 
-    def toggle_link_collision(self, collision_link_names: List[str], enable_flag: bool):
+    def toggle_link_collision(self, collision_link_names: List[str],
+                              enable_flag: bool):
         if len(collision_link_names) > 0:
             if enable_flag:
                 for k in collision_link_names:
@@ -4346,9 +4347,13 @@ class MotionGen(MotionGenConfig):
         grasp_poses: Pose,
         plan_config: MotionGenPlanConfig,
         grasp_approach_offset: Pose = Pose.from_list([0, 0, -0.15, 1, 0, 0, 0]),
-        grasp_approach_path_constraint: Union[None, List[float]] = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0],
+        grasp_approach_path_constraint: Union[None, List[float]] = [
+            0.1, 0.1, 0.1, 0.1, 0.1, 0.0
+        ],
         retract_offset: Pose = Pose.from_list([0, 0, -0.15, 1, 0, 0, 0]),
-        retract_path_constraint: Union[None, List[float]] = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0],
+        retract_path_constraint: Union[None, List[float]] = [
+            0.1, 0.1, 0.1, 0.1, 0.1, 0.0
+        ],
         disable_collision_links: List[str] = [],
         plan_approach_to_grasp: bool = True,
         plan_grasp_to_retract: bool = True,
@@ -4431,7 +4436,8 @@ class MotionGen(MotionGenConfig):
         if grasp_approach_constraint_in_goal_frame:
             offset_goal_pose = goal_pose.clone().multiply(grasp_approach_offset)
         else:
-            offset_goal_pose = grasp_approach_offset.clone().multiply(goal_pose.clone())
+            offset_goal_pose = grasp_approach_offset.clone().multiply(
+                goal_pose.clone())
 
         reach_offset_mg_result = self.plan_single(
             start_state,
@@ -4446,19 +4452,22 @@ class MotionGen(MotionGenConfig):
         if not plan_approach_to_grasp:
             result.grasp_trajectory = reach_offset_mg_result.optimized_plan
             result.grasp_trajectory_dt = reach_offset_mg_result.optimized_dt
-            result.grasp_interpolated_trajectory = reach_offset_mg_result.get_interpolated_plan()
+            result.grasp_interpolated_trajectory = reach_offset_mg_result.get_interpolated_plan(
+            )
             result.grasp_interpolation_dt = reach_offset_mg_result.interpolation_dt
             return result
         # plan to final grasp
         if grasp_approach_path_constraint is not None:
             hold_pose_cost_metric = PoseCostMetric(
                 hold_partial_pose=True,
-                hold_vec_weight=self.tensor_args.to_device(grasp_approach_path_constraint),
+                hold_vec_weight=self.tensor_args.to_device(
+                    grasp_approach_path_constraint),
                 project_to_goal_frame=grasp_approach_constraint_in_goal_frame,
             )
             plan_config.pose_cost_metric = hold_pose_cost_metric
 
-        offset_start_state = reach_offset_mg_result.optimized_plan[-1].unsqueeze(0)
+        offset_start_state = reach_offset_mg_result.optimized_plan[
+            -1].unsqueeze(0)
 
         self.toggle_link_collision(disable_collision_links, False)
 
@@ -4495,34 +4504,29 @@ class MotionGen(MotionGenConfig):
                 interpolate_trajectory=True,
             )
 
-        if (reach_offset_mg_result.optimized_dt - reach_grasp_mg_result.optimized_dt).abs() > 0.01:
+        if (reach_offset_mg_result.optimized_dt -
+                reach_grasp_mg_result.optimized_dt).abs() > 0.01:
             reach_offset_mg_result.success[:] = False
             if reach_offset_mg_result.debug_info is None:
                 reach_offset_mg_result.debug_info = {}
             reach_offset_mg_result.debug_info["plan_single_grasp_status"] = (
-                "Stitching Trajectories Failed"
-            )
+                "Stitching Trajectories Failed")
             return reach_offset_mg_result, None
 
         result.grasp_trajectory = reach_offset_mg_result.optimized_plan.stack(
-            reach_grasp_mg_result.optimized_plan
-        ).clone()
+            reach_grasp_mg_result.optimized_plan).clone()
 
         result.grasp_trajectory_dt = reach_offset_mg_result.optimized_dt
 
         result.grasp_interpolated_trajectory = (
-            reach_offset_mg_result.get_interpolated_plan()
-            .stack(reach_grasp_mg_result.get_interpolated_plan())
-            .clone()
-        )
+            reach_offset_mg_result.get_interpolated_plan().stack(
+                reach_grasp_mg_result.get_interpolated_plan()).clone())
         result.grasp_interpolation_dt = reach_offset_mg_result.interpolation_dt
 
         # update trajectories in results:
-        result.planning_time = (
-            reach_offset_mg_result.total_time
-            + reach_grasp_mg_result.total_time
-            + goalset_motion_gen_result.total_time
-        )
+        result.planning_time = (reach_offset_mg_result.total_time +
+                                reach_grasp_mg_result.total_time +
+                                goalset_motion_gen_result.total_time)
 
         # check if retract path is required:
         result.success[:] = True
@@ -4537,7 +4541,8 @@ class MotionGen(MotionGenConfig):
         if retract_constraint_in_goal_frame:
             retract_goal_pose = goal_pose.clone().multiply(retract_offset)
         else:
-            retract_goal_pose = retract_offset.clone().multiply(goal_pose.clone())
+            retract_goal_pose = retract_offset.clone().multiply(
+                goal_pose.clone())
 
         # add path constraint for retract:
         plan_config.pose_cost_metric = None
@@ -4545,7 +4550,8 @@ class MotionGen(MotionGenConfig):
         if retract_path_constraint is not None:
             hold_pose_cost_metric = PoseCostMetric(
                 hold_partial_pose=True,
-                hold_vec_weight=self.tensor_args.to_device(retract_path_constraint),
+                hold_vec_weight=self.tensor_args.to_device(
+                    retract_path_constraint),
                 project_to_goal_frame=retract_constraint_in_goal_frame,
             )
             plan_config.pose_cost_metric = hold_pose_cost_metric
@@ -4566,7 +4572,8 @@ class MotionGen(MotionGenConfig):
 
         result.retract_trajectory = retract_grasp_mg_result.optimized_plan
         result.retract_trajectory_dt = retract_grasp_mg_result.optimized_dt
-        result.retract_interpolated_trajectory = retract_grasp_mg_result.get_interpolated_plan()
+        result.retract_interpolated_trajectory = retract_grasp_mg_result.get_interpolated_plan(
+        )
         result.retract_interpolation_dt = retract_grasp_mg_result.interpolation_dt
 
         return result
