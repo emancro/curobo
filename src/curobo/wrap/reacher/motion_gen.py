@@ -2851,8 +2851,10 @@ class MotionGen(MotionGenConfig):
         ik_results = []
         distances = []
 
+        use_distance_threshold = True
         if desired_ik_list is None or len(desired_ik_list) == 0:
             desired_ik_list = [start_state]
+            use_distance_threshold = False
 
         for desired_ik in desired_ik_list:
             log_warn(f'MotionGen IK based on {desired_ik.position}')
@@ -2887,7 +2889,8 @@ class MotionGen(MotionGenConfig):
         best_ik_result = ik_results[best_result_index.item()]
         closest_index = min_indices[best_result_index][0].item()
 
-        if overall_min_distance.item() > distance_threshold:
+        if use_distance_threshold and overall_min_distance.item(
+        ) > distance_threshold:
             log_warn(
                 f"MotionGen Did not find IK solution within distance threshold: {overall_min_distance.item()}"
             )
