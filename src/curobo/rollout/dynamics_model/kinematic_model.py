@@ -31,7 +31,7 @@ from curobo.types.enum import StateType
 from curobo.types.math import Pose
 from curobo.types.robot import JointState, RobotConfig
 from curobo.util.helpers import list_idx_if_not_none
-from curobo.util.logger import log_error, log_info
+from curobo.util.logger import log_error #, log_info
 from curobo.util.state_filter import FilterConfig, JointStateFilter
 
 
@@ -426,7 +426,7 @@ class KinematicModel(KinematicModelConfig):
                 (batch_size, self.horizon, self.d_action), self.tensor_args
             )
 
-            log_info("Updating state_seq buffer reference (created new tensor)")
+            # log_info("Updating state_seq buffer reference (created new tensor)")
             # print("Creating new tensor")
         if force_update:
             self.state_seq = self.state_seq.detach()
