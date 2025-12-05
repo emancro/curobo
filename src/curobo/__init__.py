@@ -50,6 +50,7 @@ def _get_version():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parent.parent.parent
+    print(f'[curobo] root: {root}')
     if (root / ".git").exists() and not (root / ".git/shallow").exists():
         # Third Party
         import setuptools_scm
@@ -78,7 +79,7 @@ def _get_version():
 
 
 # Set `__version__` attribute
-__version__ = _get_version()
+__version__ = 0 #_get_version()
 
 # Remove `_get_version` so it is not added as an attribute
 del _get_version
