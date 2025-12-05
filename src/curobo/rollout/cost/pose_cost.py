@@ -142,6 +142,41 @@ class PoseCostMetric:
             offset_position=offset_position_vec,
             offset_tstep_fraction=tstep_fraction,
         )
+    
+    @classmethod
+    def create_grasp_approach_metric_with_free_rotation(
+        cls,
+        offset_position: float = 0.1,
+        linear_axis: int = 2,
+        rotation_axis: int = 2,
+        tstep_fraction: float = 0.8,
+        tensor_args: TensorDeviceType = TensorDeviceType(),
+    ) -> PoseCostMetric:
+        """Enables moving to a pregrasp and then locked orientation movement to final grasp.
+
+        Since this is added as a cost, the trajectory will not reach the exact offset, instead it
+        will try to take a blended path to the final grasp without stopping at the offset.
+
+        Args:
+            offset_position: offset in meters.
+            linear_axis: specifies the x y or z axis.
+            tstep_fraction:  specifies the timestep fraction to start activating this constraint.
+            tensor_args: cuda device.
+
+        Returns:
+            cost metric.
+        """
+        hold_vec_weight = tensor_args.to_device([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        hold_vec_weight[3 + rotation_axis] = 0.0
+        hold_vec_weight[3 + linear_axis] = 0.0
+        offset_position_vec = tensor_args.to_device([0.0, 0.0, 0.0])
+        offset_position_vec[linear_axis] = offset_position
+        return cls(
+            hold_partial_pose=True,
+            hold_vec_weight=hold_vec_weight,
+            offset_position=offset_position_vec,
+            offset_tstep_fraction=tstep_fraction,
+        )
 
     @classmethod
     def reset_metric(cls) -> PoseCostMetric:

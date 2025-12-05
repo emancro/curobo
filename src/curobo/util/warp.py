@@ -58,11 +58,11 @@ def warp_support_kernel_key(wp_module=None):
     wp_version = wp_module.config.version
 
     if version.parse(wp_version) < version.parse("1.2.1"):
-        log_info(
-            "Warp version is "
-            + wp_version
-            + " < 1.2.1, using, creating global constant to trigger kernel generation."
-        )
+        # log_info(
+        #     "Warp version is "
+        #     + wp_version
+        #     + " < 1.2.1, using, creating global constant to trigger kernel generation."
+        # )
         return False
     return True
 

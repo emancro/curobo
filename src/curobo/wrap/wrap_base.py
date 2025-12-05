@@ -97,9 +97,9 @@ class WrapBase(WrapConfig):
 
     def update_params(self, goal: Goal):
         with profiler.record_function("wrap_base/safety/update_params"):
-            log_info("Updating safety params")
+            #log_info("Updating safety params")
             self.safety_rollout.update_params(goal)
-        log_info("Updating optimizer params")
+        #log_info("Updating optimizer params")
         for opt in self.optimizers:
             opt.update_params(goal)
 

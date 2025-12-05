@@ -18,7 +18,7 @@ import logging
 import sys
 
 
-def setup_logger(level="info", logger_name: str = "curobo"):
+def setup_logger(level="warn", logger_name: str = "curobo"):
     """Set up logger level.
 
     Args:
@@ -44,7 +44,7 @@ def setup_logger(level="info", logger_name: str = "curobo"):
     logger.setLevel(level=level)
 
 
-def setup_curobo_logger(level="info"):
+def setup_curobo_logger(level="warn"):
     """Set up logger level for curobo package. Deprecated. Use :py:meth:`setup_logger` instead."""
     return setup_logger(level, "curobo")
 
